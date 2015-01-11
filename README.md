@@ -22,6 +22,7 @@
   - [Touching](#touch)
   - [Trashing and Untrashing](#trashing-and-untrashing)
   - [Emptying the Trash](#emptying-the-trash)
+  - [Copying](#copying)
   - [Listing Files](#listing-files)
   - [Quota](#quota)
   - [Help](#help)
@@ -166,6 +167,21 @@ Emptying the trash will permanently delete all trashed files. They will be unrec
 
 ```shell
 $ drive emptytrash
+```
+
+### Copying files
+
+Copying files will create the duplicate file of the target remote file.
+
+```shell
+$ drive copy dest1/remote_path dest2/dest_path
+```
+
+Google Drive supports creation of multiple files with the same path. To allow for creation duplicate names
+toggle this using the `-duplicates` flag
+
+```shell
+$ drive copy -duplicates dest1/remote_path dest1/remote_path
 ```
 
 ### Listing Files

@@ -18,9 +18,18 @@ import (
 	"fmt"
 )
 
+const (
+	CopyNone = 1 << iota
+	CopyAllowDuplicates
+)
+
+func allowDuplicates(mask int) bool {
+	return (mask & CopyAllowDuplicates) != 0
+}
+
 func (g *Commands) Copy() (err error) {
 	srcLen := len(g.opts.Sources)
-	if srcLen != 2 {
+	if srcLen < 2 {
 		return fmt.Errorf("expecting <src> <dest>")
 	}
 
@@ -40,7 +49,9 @@ func (g *Commands) Copy() (err error) {
 }
 
 func (g *Commands) copy(srcFile *File, dest string) (*File, error) {
-	if srcFile.IsDir && !g.opts.Recursive {
+	// Noop for now for directory copying.
+	if srcFile.IsDir {
+		// && !g.opts.Recursive
 		return nil, fmt.Errorf("%s is a directory", srcFile.Name)
 	}
 	parent, child := parentChild(dest)
@@ -51,11 +62,14 @@ func (g *Commands) copy(srcFile *File, dest string) (*File, error) {
 		}
 	}
 
-	/*
-		// TODO: Incorporate directory copying
-		if !g.opts.Recursive && srcFile.IsDir {
-			return nil, fmt.Errorf("%s is a directory", src)
+	if !allowDuplicates(g.opts.TypeMask) {
+		destFile, destErr := g.rem.FindByPath(dest)
+		if destErr != nil && destErr != ErrPathNotExists {
+			return nil, destErr
 		}
-	*/
+		if destFile != nil {
+			return nil, fmt.Errorf("copy [%s]: No duplicates allowed when CopyDuplicates is not set", dest)
+		}
+	}
 	return g.rem.Copy(srcFile, destParent.Id, child)
 }

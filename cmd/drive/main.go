@@ -230,22 +230,30 @@ type pushCmd struct {
 }
 
 type copyCmd struct {
-	hidden    *bool
-	noPrompt  *bool
-	recursive *bool
+	hidden     *bool
+	noPrompt   *bool
+	recursive  *bool
+	duplicates *bool
 }
 
 func (cmd *copyCmd) Flags(fs *flag.FlagSet) *flag.FlagSet {
 	cmd.hidden = fs.Bool("hidden", false, "allows pushing of hidden paths")
 	cmd.recursive = fs.Bool("r", false, "performs the push action recursively")
 	cmd.noPrompt = fs.Bool("no-prompt", false, "shows no prompt before copying files")
+	cmd.duplicates = fs.Bool("duplicates", false, "allows creation of duplicates in remote")
 	return fs
 }
 
 func (cmd *copyCmd) Run(args []string) {
 	sources, context, path := preprocessArgs(args)
+
+	mask := 0
+	if *cmd.duplicates {
+		mask |= drive.CopyAllowDuplicates
+	}
 	exitWithError(drive.New(context, &drive.Options{
 		Hidden:    *cmd.hidden,
+		TypeMask:  mask,
 		NoPrompt:  *cmd.noPrompt,
 		Path:      path,
 		Recursive: *cmd.recursive,
