@@ -30,30 +30,55 @@ func allowDuplicates(mask int) bool {
 func (g *Commands) Copy() (err error) {
 	srcLen := len(g.opts.Sources)
 	if srcLen < 2 {
-		return fmt.Errorf("expecting <src> <dest>")
+		return fmt.Errorf("expecting <src> [src...] <dest>")
 	}
 
-	src, dest := g.opts.Sources[0], g.opts.Sources[1]
-	srcFile, err := g.rem.FindByPath(src)
-	if err != nil {
-		return err
+	nestingCount := 0
+	var srcFiles []*File
+	rest, dest := g.opts.Sources[:srcLen-1], g.opts.Sources[srcLen-1]
+
+	if len(rest) >= 2 {
+		nestingCount += 1
 	}
-	if srcFile == nil {
-		return fmt.Errorf("%s: source doesn't exist", src)
+	for _, src := range rest {
+		srcFile, err := g.rem.FindByPath(src)
+		if err != nil {
+			return err
+		}
+		if srcFile == nil {
+			return fmt.Errorf("%s: source doesn't exist", src)
+		}
+
+		if srcFile.IsDir {
+			nestingCount += 1
+		}
+
+		if !srcFile.Copyable && !srcFile.IsDir {
+			return fmt.Errorf("%s: not copyable", src)
+		}
+		if srcFile.IsDir && !g.opts.Recursive {
+			return fmt.Errorf("copy: %s is a directory", src)
+		}
+		srcFiles = append(srcFiles, srcFile)
 	}
-	if !srcFile.Copyable {
-		return fmt.Errorf("%s: not copyable", src)
+
+	destFile, destErr := g.rem.FindByPath(dest)
+	if destErr != nil && destErr != ErrPathNotExists {
+		return destErr
 	}
-	_, err = g.copy(srcFile, dest)
+	if nestingCount > 1 && destFile != nil && !destFile.IsDir {
+		return fmt.Errorf("%s: is not a directory yet multiple paths are to be copied to it")
+	}
+
+	for _, srcFile := range srcFiles {
+		if _, err = g.copy(srcFile, dest); err != nil {
+			fmt.Println(err)
+		}
+	}
 	return
 }
 
 func (g *Commands) copy(srcFile *File, dest string) (*File, error) {
-	// Noop for now for directory copying.
-	if srcFile.IsDir {
-		// && !g.opts.Recursive
-		return nil, fmt.Errorf("%s is a directory", srcFile.Name)
-	}
 	parent, child := parentChild(dest)
 	destParent, destErr := g.rem.FindByPath(parent)
 	if destErr != nil {
@@ -62,14 +87,82 @@ func (g *Commands) copy(srcFile *File, dest string) (*File, error) {
 		}
 	}
 
+	destFile, destErr := g.rem.FindByPath(dest)
 	if !allowDuplicates(g.opts.TypeMask) {
-		destFile, destErr := g.rem.FindByPath(dest)
 		if destErr != nil && destErr != ErrPathNotExists {
 			return nil, destErr
 		}
 		if destFile != nil {
-			return nil, fmt.Errorf("copy [%s]: No duplicates allowed when CopyDuplicates is not set", dest)
+			if !destFile.IsDir {
+				return nil, fmt.Errorf("copy [%s]: No duplicates allowed when CopyDuplicates is not set", dest)
+			}
+			child = destFile.Name + "/" + child
 		}
 	}
-	return g.rem.Copy(srcFile, destParent.Id, child)
+
+	parentId := ""
+	if destParent != nil {
+		parentId = destParent.Id
+	}
+
+	if destFile != nil && destFile.IsDir && !srcFile.IsDir {
+		child = srcFile.Name
+		parentId = destFile.Id
+	}
+
+	if !srcFile.IsDir {
+		if parentId == "" {
+			return nil, fmt.Errorf("cannot copy to a non existant parent: %s", parent)
+		}
+		return g.rem.Copy(srcFile, parentId, child)
+	}
+
+	if !g.opts.Recursive {
+		return nil, fmt.Errorf("%s is a directory", srcFile.Name)
+	}
+
+	// Ensure that the parent is always created
+	dupdFile := srcFile.DupFile()
+
+	// Note: Explicitly clear dupdFile's Id to register this as a first time creation
+	dupdFile.Id = ""
+
+	_, pErr := g.rem.Upsert(parentId, dupdFile, destFile, nil)
+	if pErr != nil {
+		return nil, pErr
+	}
+
+	searchExpr := buildExpression(srcFile.Id, 0, false)
+
+	req := g.rem.service.Files.List()
+	req.Q(searchExpr)
+
+	// TODO: Get pageSize from g.opts
+	req.MaxResults(g.opts.PageSize)
+	pageToken := ""
+	for {
+		if pageToken != "" {
+			req = req.PageToken(pageToken)
+		}
+		res, childErr := req.Do()
+		if childErr != nil {
+			return nil, childErr
+		}
+
+		for _, file := range res.Items {
+			rem := NewRemoteFile(file)
+			if isHidden(file.Title, g.opts.Hidden) {
+				continue
+			}
+			_, _ = g.copy(rem, dest+"/"+rem.Name)
+		}
+		pageToken = res.NextPageToken
+		if pageToken == "" {
+			break
+		}
+		if !nextPage() {
+			return nil, nil
+		}
+	}
+	return nil, nil
 }

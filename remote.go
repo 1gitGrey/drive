@@ -269,7 +269,7 @@ func (r *Remote) Copy(src *File, parentId, destName string) (*File, error) {
 		return nil, fmt.Errorf("non existant remote file cannot be copied")
 	}
 	copied := &drive.File{
-		Title:        destName,
+		Title:        urlToPath(destName, false),
 		ModifiedDate: toUTCString(src.ModTime),
 	}
 	if parentId != "" {
@@ -290,13 +290,7 @@ func toUTCString(t time.Time) string {
 		utc.Year(), utc.Month(), utc.Day(), utc.Hour(), utc.Minute(), utc.Second())
 }
 
-func (r *Remote) UpsertByComparison(parentId, fsAbsPath string, src, dest *File) (f *File, err error) {
-	var body io.Reader
-	body, err = os.Open(fsAbsPath)
-	if err != nil {
-		return
-	}
-
+func (r *Remote) Upsert(parentId string, src, dest *File, body io.Reader) (f *File, err error) {
 	uploaded := &drive.File{
 		// Must ensure that the path is prepared for a URL upload
 		Title:   urlToPath(src.Name, false),
@@ -327,7 +321,7 @@ func (r *Remote) UpsertByComparison(parentId, fsAbsPath string, src, dest *File)
 	req.SetModifiedDate(true)
 
 	if !src.IsDir {
-		if dest == nil {
+		if dest == nil && body != nil {
 			req = req.Media(body)
 		} else if mask := fileDifferences(src, dest); checksumDiffers(mask) {
 			req = req.Media(body)
@@ -337,6 +331,15 @@ func (r *Remote) UpsertByComparison(parentId, fsAbsPath string, src, dest *File)
 		return
 	}
 	return NewRemoteFile(uploaded), nil
+}
+
+func (r *Remote) UpsertByComparison(parentId, fsAbsPath string, src, dest *File) (f *File, err error) {
+	var body io.Reader
+	body, err = os.Open(fsAbsPath)
+	if err != nil {
+		return
+	}
+	return r.Upsert(parentId, src, dest, body)
 }
 
 func (r *Remote) findShared(p []string) (shared []*File, err error) {

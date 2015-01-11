@@ -94,6 +94,24 @@ func NewRemoteFile(f *drive.File) *File {
 	}
 }
 
+func (f *File) DupFile() *File {
+	return &File{
+		BlobAt:         f.BlobAt,
+		Copyable:       f.Copyable,
+		Etag:           f.Etag,
+		ExportLinks:    f.ExportLinks,
+		Id:             f.Id,
+		IsDir:          f.IsDir,
+		Md5Checksum:    f.Md5Checksum,
+		MimeType:       f.MimeType,
+		ModTime:        f.ModTime,
+		Name:           f.Name,
+		Size:           f.Size,
+		Shared:         f.Shared,
+		UserPermission: f.UserPermission,
+	}
+}
+
 func NewLocalFile(absPath string, f os.FileInfo) *File {
 	return &File{
 		Id:      "",

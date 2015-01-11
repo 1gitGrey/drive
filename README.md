@@ -184,6 +184,11 @@ toggle this using the `-duplicates` flag
 $ drive copy -duplicates dest1/remote_path dest1/remote_path
 ```
 
+To perform copying of directories, make sure to use the recursive toggle flag
+```shell
+$ drive copy -r path1 path2 path3 dest_dir
+```
+
 ### Listing Files
 
 The `list` command shows a paginated list of paths on the cloud.
