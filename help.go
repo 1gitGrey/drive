@@ -22,6 +22,7 @@ var Version = "0.0.4d"
 
 const (
 	AllKey        = "all"
+	CopyKey       = "copy"
 	DiffKey       = "diff"
 	EmptyTrashKey = "emptytrash"
 	InitKey       = "init"
@@ -40,6 +41,7 @@ const (
 
 const (
 	DescAll        = "print out the entire help section"
+	DescCopy       = "copy a remote file"
 	DescDiff       = "compares local files with their remote equivalent"
 	DescEmptyTrash = "permanently cleans out your trash"
 	DescHelp       = "Get help for a topic"
@@ -57,6 +59,9 @@ const (
 )
 
 var docMap = map[string][]string{
+	CopyKey: []string{
+		DescCopy, "Copy the contents of a remote file to the destination",
+	},
 	DiffKey: []string{
 		DescDiff, "Accepts multiple remote paths for line by line comparison",
 	},

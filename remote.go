@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	gopath "path"
 	"regexp"
 	"strconv"
 	"strings"
@@ -137,20 +138,23 @@ func (r *Remote) FindById(id string) (file *File, err error) {
 	return NewRemoteFile(f), nil
 }
 
-func (r *Remote) FindByPath(p string) (file *File, err error) {
+func (r *Remote) findByPath(p string, trashed bool) (file *File, err error) {
 	if p == "/" {
 		return r.FindById("root")
 	}
 	parts := strings.Split(p, "/") // TODO: use path.Split instead
+	if trashed {
+		return r.findByPathTrashed("root", parts[1:])
+	}
 	return r.findByPathRecv("root", parts[1:])
 }
 
-func (r *Remote) FindByPathTrashed(p string) (file *File, err error) {
-	if p == "/" {
-		return r.FindById("root")
-	}
-	parts := strings.Split(p, "/") // TODO: use path.Split instead
-	return r.findByPathTrashed("root", parts[1:])
+func (r *Remote) FindByPath(p string) (*File, error) {
+	return r.findByPath(p, false)
+}
+
+func (r *Remote) FindByPathTrashed(p string) (*File, error) {
+	return r.findByPath(p, true)
 }
 
 func (r *Remote) findByParentIdRaw(parentId string, trashed, hidden bool) (files []*File, err error) {
@@ -186,6 +190,12 @@ func (r *Remote) findByParentIdRaw(parentId string, trashed, hidden bool) (files
 		}
 	}
 	return
+}
+
+func (r *Remote) FindParent(relToRootPath string) (*File, error) {
+	p := strings.Split(relToRootPath, "/")
+	p = append([]string{"/"}, p[:len(p)-1]...)
+	return r.FindByPath(gopath.Join(p...))
 }
 
 func (r *Remote) FindByParentId(parentId string, hidden bool) (files []*File, err error) {
@@ -249,6 +259,29 @@ func (r *Remote) Touch(id string) error {
 	return err
 }
 
+func (r *Remote) Copy(src *File, destName string) (*File, error) {
+	if src == nil {
+		return nil, fmt.Errorf("non existant remote file cannot be copied")
+	}
+	copied := &drive.File{
+		Title:        destName,
+		ModifiedDate: toUTCString(src.ModTime),
+	}
+	createdFile, err := r.service.Files.Copy(src.Id, copied).Do()
+	if err != nil {
+		return nil, err
+	}
+	return NewRemoteFile(createdFile), nil
+}
+
+func toUTCString(t time.Time) string {
+	utc := t.UTC().Round(time.Second)
+
+	// Ugly but straight forward formatting because time.Parse is such a prima donna
+	return fmt.Sprintf("%d-%02d-%02dT%02d:%02d:%0d.000Z",
+		utc.Year(), utc.Month(), utc.Day(), utc.Hour(), utc.Minute(), utc.Second())
+}
+
 func (r *Remote) UpsertByComparison(parentId, fsAbsPath string, src, dest *File) (f *File, err error) {
 	var body io.Reader
 	body, err = os.Open(fsAbsPath)
@@ -265,14 +298,8 @@ func (r *Remote) UpsertByComparison(parentId, fsAbsPath string, src, dest *File)
 		uploaded.MimeType = DriveFolderMimeType
 	}
 
-	utc := src.ModTime.UTC().Round(time.Second)
-
-	// Ugly but straight forward formatting because time.Parse is such a prima donna
-	str := fmt.Sprintf("%d-%02d-%02dT%02d:%02d:%0d.000Z",
-		utc.Year(), utc.Month(), utc.Day(), utc.Hour(), utc.Minute(), utc.Second())
-
 	// Ensure that the ModifiedDate is retrieved from local
-	uploaded.ModifiedDate = str
+	uploaded.ModifiedDate = toUTCString(src.ModTime)
 
 	if src.Id == "" {
 		req := r.service.Files.Insert(uploaded)

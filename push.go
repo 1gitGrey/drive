@@ -181,14 +181,11 @@ func lonePush(g *Commands, parent, absPath, path string) (cl []*Change, err erro
 func (g *Commands) remoteMod(change *Change) (err error) {
 	defer g.taskDone()
 	absPath := g.context.AbsPathOf(change.Path)
-	var parent *File
 	if change.Dest != nil {
 		change.Src.Id = change.Dest.Id // TODO: bad hack
 	}
-
-	p := strings.Split(change.Path, "/")
-	p = append([]string{"/"}, p[:len(p)-1]...)
-	parent, err = g.rem.FindByPath(gopath.Join(p...))
+	var parent *File
+	parent, err = g.rem.FindParent(change.Path)
 	if err != nil {
 		fmt.Println(parent, err)
 		return

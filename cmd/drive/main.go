@@ -40,6 +40,7 @@ func main() {
 	}
 	runtime.GOMAXPROCS(int(maxProcs))
 
+	command.On(drive.CopyKey, drive.DescCopy, &copyCmd{}, []string{})
 	command.On(drive.DiffKey, drive.DescDiff, &diffCmd{}, []string{})
 	command.On(drive.EmptyTrashKey, drive.DescEmptyTrash, &emptyTrashCmd{}, []string{})
 	command.On(drive.InitKey, drive.DescInit, &initCmd{}, []string{})
@@ -135,6 +136,10 @@ func (cmd *listCmd) Flags(fs *flag.FlagSet) *flag.FlagSet {
 }
 
 func (cmd *listCmd) Run(args []string) {
+	if *cmd.pageSize < 0 {
+		exitWithError(fmt.Errorf("pagesize: expected >= 0 got: %v", *cmd.pageSize))
+	}
+
 	sources, context, path := preprocessArgs(args)
 
 	typeMask := 0
@@ -224,6 +229,30 @@ type pushCmd struct {
 	mountedPush *bool
 }
 
+type copyCmd struct {
+	hidden    *bool
+	noPrompt  *bool
+	recursive *bool
+}
+
+func (cmd *copyCmd) Flags(fs *flag.FlagSet) *flag.FlagSet {
+	cmd.hidden = fs.Bool("hidden", false, "allows pushing of hidden paths")
+	cmd.recursive = fs.Bool("r", false, "performs the push action recursively")
+	cmd.noPrompt = fs.Bool("no-prompt", false, "shows no prompt before copying files")
+	return fs
+}
+
+func (cmd *copyCmd) Run(args []string) {
+	sources, context, path := preprocessArgs(args)
+	exitWithError(drive.New(context, &drive.Options{
+		Hidden:    *cmd.hidden,
+		NoPrompt:  *cmd.noPrompt,
+		Path:      path,
+		Recursive: *cmd.recursive,
+		Sources:   sources,
+	}).Copy())
+}
+
 func (cmd *pushCmd) Flags(fs *flag.FlagSet) *flag.FlagSet {
 	cmd.noClobber = fs.Bool("no-clobber", false, "allows overwriting of old content")
 	cmd.hidden = fs.Bool("hidden", false, "allows pushing of hidden paths")
@@ -232,37 +261,6 @@ func (cmd *pushCmd) Flags(fs *flag.FlagSet) *flag.FlagSet {
 	cmd.force = fs.Bool("force", false, "forces a push even if no changes present")
 	cmd.mountedPush = fs.Bool("m", false, "allows pushing of mounted paths")
 	return fs
-}
-
-func preprocessArgs(args []string) ([]string, *config.Context, string) {
-	var relPaths []string
-	context, path := discoverContext(args)
-	root := context.AbsPathOf("")
-
-	if len(args) < 1 {
-		args = []string{"."}
-	}
-
-	var err error
-	for _, p := range args {
-		p, err = filepath.Abs(p)
-		if err != nil {
-			fmt.Println(err)
-			continue
-		}
-
-		relPath, err := filepath.Rel(root, p)
-		if relPath == "." {
-			relPath = ""
-		}
-
-		exitWithError(err)
-
-		relPath = "/" + relPath
-		relPaths = append(relPaths, relPath)
-	}
-
-	return uniqOrderedStr(relPaths), context, path
 }
 
 func (cmd *pushCmd) Run(args []string) {
@@ -523,4 +521,35 @@ func exitWithError(err error) {
 		fmt.Println(err)
 		os.Exit(1)
 	}
+}
+
+func preprocessArgs(args []string) ([]string, *config.Context, string) {
+	var relPaths []string
+	context, path := discoverContext(args)
+	root := context.AbsPathOf("")
+
+	if len(args) < 1 {
+		args = []string{"."}
+	}
+
+	var err error
+	for _, p := range args {
+		p, err = filepath.Abs(p)
+		if err != nil {
+			fmt.Println(err)
+			continue
+		}
+
+		relPath, err := filepath.Rel(root, p)
+		if relPath == "." {
+			relPath = ""
+		}
+
+		exitWithError(err)
+
+		relPath = "/" + relPath
+		relPaths = append(relPaths, relPath)
+	}
+
+	return uniqOrderedStr(relPaths), context, path
 }
