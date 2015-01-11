@@ -16,7 +16,6 @@ package drive
 
 import (
 	"fmt"
-	"strings"
 )
 
 func (g *Commands) Copy() (err error) {
@@ -25,21 +24,38 @@ func (g *Commands) Copy() (err error) {
 		return fmt.Errorf("expecting <src> <dest>")
 	}
 
-	var srcFile *File
 	src, dest := g.opts.Sources[0], g.opts.Sources[1]
-
-	srcFile, err = g.rem.FindByPath(src)
+	srcFile, err := g.rem.FindByPath(src)
 	if err != nil {
-		return
+		return err
 	}
 	if srcFile == nil {
-		return fmt.Errorf("%s: source doesn't exist\n", src)
+		return fmt.Errorf("%s: source doesn't exist", src)
+	}
+	if !srcFile.Copyable {
+		return fmt.Errorf("%s: not copyable", src)
+	}
+	_, err = g.copy(srcFile, dest)
+	return
+}
+
+func (g *Commands) copy(srcFile *File, dest string) (*File, error) {
+	if srcFile.IsDir && !g.opts.Recursive {
+		return nil, fmt.Errorf("%s is a directory", srcFile.Name)
+	}
+	parent, child := parentChild(dest)
+	destParent, destErr := g.rem.FindByPath(parent)
+	if destErr != nil {
+		if destErr != ErrPathNotExists {
+			return nil, destErr
+		}
 	}
 
-	// TODO: Incorporate directory copying
-	if !g.opts.Recursive && srcFile.IsDir {
-		return fmt.Errorf("%s is a directory", src)
-	}
-	_, err = g.rem.Copy(srcFile, strings.TrimLeft(dest, "/"))
-	return
+	/*
+		// TODO: Incorporate directory copying
+		if !g.opts.Recursive && srcFile.IsDir {
+			return nil, fmt.Errorf("%s is a directory", src)
+		}
+	*/
+	return g.rem.Copy(srcFile, destParent.Id, child)
 }

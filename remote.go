@@ -192,10 +192,15 @@ func (r *Remote) findByParentIdRaw(parentId string, trashed, hidden bool) (files
 	return
 }
 
+func parentChild(relToRootPath string) (string, string) {
+	all := strings.Split(relToRootPath, "/")
+	p := append([]string{"/"}, all[:len(all)-1]...)
+	return gopath.Join(p...), all[len(all)-1]
+}
+
 func (r *Remote) FindParent(relToRootPath string) (*File, error) {
-	p := strings.Split(relToRootPath, "/")
-	p = append([]string{"/"}, p[:len(p)-1]...)
-	return r.FindByPath(gopath.Join(p...))
+	parent, _ := parentChild(relToRootPath)
+	return r.FindByPath(parent)
 }
 
 func (r *Remote) FindByParentId(parentId string, hidden bool) (files []*File, err error) {
@@ -259,13 +264,16 @@ func (r *Remote) Touch(id string) error {
 	return err
 }
 
-func (r *Remote) Copy(src *File, destName string) (*File, error) {
+func (r *Remote) Copy(src *File, parentId, destName string) (*File, error) {
 	if src == nil {
 		return nil, fmt.Errorf("non existant remote file cannot be copied")
 	}
 	copied := &drive.File{
 		Title:        destName,
 		ModifiedDate: toUTCString(src.ModTime),
+	}
+	if parentId != "" {
+		copied.Parents = []*drive.ParentReference{&drive.ParentReference{Id: parentId}}
 	}
 	createdFile, err := r.service.Files.Copy(src.Id, copied).Do()
 	if err != nil {

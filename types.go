@@ -69,6 +69,8 @@ type File struct {
 	UserPermission *drive.Permission
 	// CacheChecksum when set avoids recomputation of checksums
 	CacheChecksum bool
+	// Copyable: Whether the file can be copied by the user
+	Copyable bool
 }
 
 func NewRemoteFile(f *drive.File) *File {
@@ -76,6 +78,7 @@ func NewRemoteFile(f *drive.File) *File {
 	mtime = mtime.Round(time.Second)
 	return &File{
 		BlobAt:      f.DownloadUrl,
+		Copyable:    f.Copyable,
 		Etag:        f.Etag,
 		ExportLinks: f.ExportLinks,
 		Id:          f.Id,
