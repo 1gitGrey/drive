@@ -16,11 +16,19 @@ package drive
 
 import (
 	"fmt"
+	"sync"
+	"time"
+
+	drive "github.com/google/google-api-go-client/drive/v2"
 )
 
 const (
 	CopyNone = 1 << iota
 	CopyAllowDuplicates
+)
+
+const (
+	RatePerSecond = 20
 )
 
 func allowDuplicates(mask int) bool {
@@ -63,28 +71,36 @@ func (g *Commands) Copy() (err error) {
 	}
 
 	destFile, destErr := g.rem.FindByPath(dest)
-	if destErr != nil && destErr != ErrPathNotExists {
-		return destErr
+	if destErr != nil {
+		if destErr != ErrPathNotExists {
+			return destErr
+		}
 	}
 	if nestingCount > 1 && destFile != nil && !destFile.IsDir {
 		return fmt.Errorf("%s: is not a directory yet multiple paths are to be copied to it")
 	}
 
+	var wg sync.WaitGroup
+	wg.Add(len(srcFiles))
+
 	for _, srcFile := range srcFiles {
-		if _, err = g.copy(srcFile, dest); err != nil {
-			fmt.Println(err)
-		}
+		go func(f *File, wg *sync.WaitGroup) {
+			defer wg.Done()
+			if _, err = g.copy(f, dest); err != nil {
+				fmt.Println(err)
+			}
+		}(srcFile, &wg)
 	}
+	wg.Wait()
 	return
 }
 
 func (g *Commands) copy(srcFile *File, dest string) (*File, error) {
 	parent, child := parentChild(dest)
+	// fmt.Printf("parent %s child %s srcFile %s\n", parent, child, srcFile.Name)
 	destParent, destErr := g.rem.FindByPath(parent)
 	if destErr != nil {
-		if destErr != ErrPathNotExists {
-			return nil, destErr
-		}
+		return nil, destErr
 	}
 
 	destFile, destErr := g.rem.FindByPath(dest)
@@ -121,10 +137,9 @@ func (g *Commands) copy(srcFile *File, dest string) (*File, error) {
 		return nil, fmt.Errorf("%s is a directory", srcFile.Name)
 	}
 
-	// Ensure that the parent is always created
 	dupdFile := srcFile.DupFile()
 
-	// Note: Explicitly clear dupdFile's Id to register this as a first time creation
+	// Note explicitly clear dupFile's Id to register this as a first time creation
 	dupdFile.Id = ""
 
 	_, pErr := g.rem.Upsert(parentId, dupdFile, destFile, nil)
@@ -140,22 +155,42 @@ func (g *Commands) copy(srcFile *File, dest string) (*File, error) {
 	// TODO: Get pageSize from g.opts
 	req.MaxResults(g.opts.PageSize)
 	pageToken := ""
+	throttle := time.Tick(1e9 / RatePerSecond)
 	for {
 		if pageToken != "" {
 			req = req.PageToken(pageToken)
 		}
+		<-throttle
 		res, childErr := req.Do()
 		if childErr != nil {
 			return nil, childErr
 		}
 
+		var wg sync.WaitGroup
+
+		newG := New(g.context, g.opts)
+		newG.taskStart(len(res.Items))
+		wg.Add(len(res.Items))
 		for _, file := range res.Items {
-			rem := NewRemoteFile(file)
-			if isHidden(file.Title, g.opts.Hidden) {
-				continue
-			}
-			_, _ = g.copy(rem, dest+"/"+rem.Name)
+			go func(f *drive.File, dest string, wgg *sync.WaitGroup) {
+				defer wgg.Done()
+				defer newG.taskDone()
+				if isHidden(file.Title, newG.opts.Hidden) {
+					return
+				}
+				rem := NewRemoteFile(f)
+
+				<-throttle
+				// Exponential back-off in case
+				_, err := newG.copy(rem, dest+"/"+rem.Name)
+				if err != nil {
+					fmt.Println(err)
+				}
+			}(file, dest, &wg)
 		}
+		wg.Wait()
+		newG.taskFinish()
+
 		pageToken = res.NextPageToken
 		if pageToken == "" {
 			break
